@@ -1,23 +1,80 @@
 import LuminousUser from "../model/user.schema.js";
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 export const userRegister = async (req, res) => {
     try {
-        const exist = await LuminousUser.findOne({ username: req.body.username });
-        const existEmail = await LuminousUser.findOne({ email: req.body.email });
+        const { username, email, password } = req.body;
 
-        if (exist) {
+        // Check if username or email already exists
+        const existingUser = await LuminousUser.findOne({ username });
+        const existingEmail = await LuminousUser.findOne({ email });
+
+        if (existingUser) {
             return res.status(401).json({ message: "Username already exists" });
         }
-        if (existEmail) {
-            return res.status(401).json({ message: "User email already exists" });
+        if (existingEmail) {
+            return res.status(401).json({ message: "Email already exists" });
         }
-        const user = req.body;
-        const newUser = new LuminousUser(user);
+
+        // Hash the password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Create the new user with hashed password
+        const newUser = new LuminousUser({
+            username,
+            email,
+            password: hashedPassword,
+        });
+
         await newUser.save();
 
-        res.status(200).json({ resultObj: user });
+        // Respond without sending the password
+        res.status(200).json({ 
+            message: "User registered successfully",
+            user: {
+                id: newUser._id,
+                username: newUser.username,
+                email: newUser.email,
+            }
+        });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+
+export const userLogin = async (req, res) => {
+    try {
+        // Find the user by email
+        const user = await LuminousUser.findOne({ email: req.body.email });
+        if (!user) {
+            return res.status(401).json({ message: "Invalid email or password" });
+        }
+
+        // Compare the password with hashed password in DB
+        const isPasswordValid = await bcrypt.compare(req.body.password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ message: "Invalid email or password" });
+        }
+
+        // Generate a token
+        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+
+        // Respond with token and user information if needed
+        return res.status(200).json({
+            message: "Login successful",
+            token,
+            user: {
+                id: user._id,
+                email: user.email,
+                name: user.name,  // Add other fields as needed
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
